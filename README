@@ -19,9 +19,9 @@ Hardware:
 # Installation and First Steps
 
 * Clone this repository:  
-    git clone https://github.com/philsmd/vap11gpy.git  
+    git clone https://github.com/philsmd/vap11g.git  
 * Run it:  
-    cd vap11gpy
+    cd vap11g
     sudo ./vap11g.py
 * USAGE:
     options:
