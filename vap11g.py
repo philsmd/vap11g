@@ -3,6 +3,20 @@
 # author: philsmd
 # date: nov 2012
 #
+# This python script is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# vap11g.py is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this source files. If not, see
+# <http://www.gnu.org/licenses/>.
+#
 # NO reverse engineering done or any kind of reverse engineering
 # of the original software intended
 # This script just "replays" the messages that the original software
