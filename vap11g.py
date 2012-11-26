@@ -465,7 +465,8 @@ def main():
         if not options.ssid is None and len(options.ssid)>0:
             essid=options.ssid
         else:
-            essid=raw_input("[i] Please insert the SSID: ")
+            while len(essid)<1 or len(essid)>32:
+                essid=raw_input("[i] Please insert the SSID: ")
         if not options.channel is None:
             channel=options.channel
         else:
