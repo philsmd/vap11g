@@ -94,7 +94,7 @@ def conv_octet(octet):
     factor=16
     for i in range(0,2):  # max ff = 15*16+15
         div=int(octet/factor)
-        res+=str(div)
+        res+="%x"%div
         octet-=div*16
         factor/=16
     return res
@@ -359,7 +359,7 @@ def main():
         print hexdump(str(msg))
     dst=eth_rev_aton(address[-1])
     if debug:
-        print "[i] Got response from device on interface '%s' with mac %s" % (address[0],dst)
+        print "[i] Got response from device on interface '%s' with MAC %s" % (address[0],dst)
     # force rescan of ssids (networks)
     s.send(buildRequest(src,dst,COMMAND_DEVICE_STATUS))
     read(s)
