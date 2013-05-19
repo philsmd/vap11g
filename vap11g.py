@@ -49,8 +49,7 @@ import struct
 import getpass
 import hashlib
 import time
-from dpkt import hexdump
-from socket import socket,SOCK_RAW,PF_PACKET,htons
+from socket import socket,SOCK_RAW,AF_PACKET,htons
 from optparse import OptionParser
 
 ##################################################################
@@ -64,6 +63,12 @@ ETH_ALL=3
 ETH_BROADCAST="ff:ff:ff:ff:ff:ff"
 ETH_TYPE="\x88\x88"
 SECURITY_OPTIONS=("Disable","WEP","WPA-PSK","WPA2-PSK")
+HEX_MAX_LINE_SYMBOLS=16
+HEX_DELIMITER=":"
+HEX_MIN_NUMBER_LEN=4
+HEX_MIN_NUMBER_PADDING=8
+HEX_DEFAULT_HEX_CHAR="."
+HEX_BLOCK_SIZE=3
 # WEP passphrase to keys conversion uses the defacto standard generation
 WEP_OPTIONS=("WEP 64bits using passphrase","WEP 128bits using passphrase","WEP 64bits keys",
     "WEP 128bits key")
@@ -105,7 +110,43 @@ def eth_rev_aton(hexstr):  # \x  \x
         if res:
             res+=':'
         res+=conv_octet(ord(hexstr[i]))
-    return res 
+    return res
+
+def hexdump(string):
+    res=""
+    i=0
+    str_len=len(string)
+    number_display=0
+    while i<str_len:
+        if i%HEX_MAX_LINE_SYMBOLS==0:
+            if i!=0:
+                res+="  "
+                k=len(res)-1
+                j=k-HEX_BLOCK_SIZE*HEX_MAX_LINE_SYMBOLS
+                ord_num=0
+                while j<k:
+                    ord_num=int(res[j+0]+res[j+1],16)
+                    if ord_num>32 and ord_num<127:
+                        res+=chr(ord_num)
+                    else:
+                        res+=HEX_DEFAULT_HEX_CHAR
+                    j+=3
+                res+="\n"
+                res+=""
+            len_pos=len(str(number_display))
+            len_leading_zeros=HEX_MIN_NUMBER_LEN-len_pos
+            len_padding=HEX_MIN_NUMBER_PADDING-len_leading_zeros-len_pos
+            while len_padding>0:
+                res+=" "
+                len_padding-=1
+            while len_leading_zeros>0:
+                res+="0"
+                len_leading_zeros-=1
+            res+=str(number_display)+HEX_DELIMITER
+            number_display+=HEX_MAX_LINE_SYMBOLS 
+        res+=" %02x"%ord(string[i])
+        i+=1
+    return res
 
 def getHwAddr(s,ifname):
     global debug
@@ -347,7 +388,7 @@ def main():
         exit(1)
     # START
     # our raw socket
-    s=socket(PF_PACKET,SOCK_RAW,htons(ETH_ALL))
+    s=socket(AF_PACKET,SOCK_RAW,htons(ETH_ALL))
     s.bind((interface,ETH_ALL))
     src=getHwAddr(s,interface)
 
