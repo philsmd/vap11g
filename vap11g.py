@@ -69,6 +69,8 @@ HEX_MIN_NUMBER_LEN=4
 HEX_MIN_NUMBER_PADDING=8
 HEX_DEFAULT_HEX_CHAR="."
 HEX_BLOCK_SIZE=3
+HEX_SMALLEST_CHAR=32
+HEX_LARGEST_CHAR=127
 # WEP passphrase to keys conversion uses the defacto standard generation
 WEP_OPTIONS=("WEP 64bits using passphrase","WEP 128bits using passphrase","WEP 64bits keys",
     "WEP 128bits key")
@@ -112,6 +114,23 @@ def eth_rev_aton(hexstr):  # \x  \x
         res+=conv_octet(ord(hexstr[i]))
     return res
 
+def hexdump_add_printable_chars(res,spaces=0):
+    res+="  "
+    k=len(res)-1
+    j=k-HEX_BLOCK_SIZE*HEX_MAX_LINE_SYMBOLS
+    ord_num=0
+    k-=HEX_BLOCK_SIZE*spaces
+    while j<k:
+        if len(str(res[j]+res[j+1]))==2:
+            ord_num=int(res[j]+res[j+1],16)
+            if ord_num>HEX_SMALLEST_CHAR and ord_num<HEX_LARGEST_CHAR:
+                res+=chr(ord_num)
+            else:
+                res+=HEX_DEFAULT_HEX_CHAR
+        j+=3
+    res+="\n"
+    return res
+
 def hexdump(string):
     res=""
     i=0
@@ -120,18 +139,7 @@ def hexdump(string):
     while i<str_len:
         if i%HEX_MAX_LINE_SYMBOLS==0:
             if i!=0:
-                res+="  "
-                k=len(res)-1
-                j=k-HEX_BLOCK_SIZE*HEX_MAX_LINE_SYMBOLS
-                ord_num=0
-                while j<k:
-                    ord_num=int(res[j+0]+res[j+1],16)
-                    if ord_num>32 and ord_num<127:
-                        res+=chr(ord_num)
-                    else:
-                        res+=HEX_DEFAULT_HEX_CHAR
-                    j+=3
-                res+="\n"
+                res=hexdump_add_printable_chars(res)
             len_pos=len(str(number_display))
             len_leading_zeros=HEX_MIN_NUMBER_LEN-len_pos
             len_padding=HEX_MIN_NUMBER_PADDING-len_leading_zeros-len_pos
@@ -145,6 +153,12 @@ def hexdump(string):
             number_display+=HEX_MAX_LINE_SYMBOLS 
         res+=" %02x"%ord(string[i])
         i+=1
+    added_spaces=0
+    while str_len%HEX_MAX_LINE_SYMBOLS!=0:
+        res+="   "
+        added_spaces+=1
+        str_len+=1
+    res=hexdump_add_printable_chars(res,added_spaces)
     return res
 
 def getHwAddr(s,ifname):
