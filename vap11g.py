@@ -132,7 +132,6 @@ def hexdump(string):
                         res+=HEX_DEFAULT_HEX_CHAR
                     j+=3
                 res+="\n"
-                res+=""
             len_pos=len(str(number_display))
             len_leading_zeros=HEX_MIN_NUMBER_LEN-len_pos
             len_padding=HEX_MIN_NUMBER_PADDING-len_leading_zeros-len_pos
