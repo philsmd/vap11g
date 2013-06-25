@@ -25,6 +25,7 @@ Hardware:
     sudo ./vap11g.py
 * USAGE:
     options:
+    -i network interface (e.g. eth0, eth1, p4p1)
     -d debug mode
     -v verbose mode (more verbose than debug, with packet inspection)
     -c channel number to be set (NOT the channel on which the device should scan)

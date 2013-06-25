@@ -348,7 +348,7 @@ def main():
     global debug,defaultInterface,verbose
     parser=OptionParser()
     parser.add_option("-i","--interface",dest="interface",help="destination LAN (ethernet) "+\
-            "interface (e.g. eth0, eth1)",metavar="interface")
+            "interface (e.g. eth0, eth1, p4p1)",metavar="interface")
     parser.add_option("-d","--debug",action="store_true",default=debug,dest="debug",
             help="debug mode switch",metavar="debug")
     parser.add_option("-v","--verbose",action="store_true",default=debug,dest="verbose",
