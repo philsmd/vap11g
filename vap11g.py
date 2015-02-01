@@ -37,7 +37,7 @@
 # software
 # FREE the world!!! everyone should be FREE to use his/her devices
 #
-# use git(hub) to post pull request,to submit patches,to discuss issues
+# use git(hub) to post pull request, to submit patches, to discuss issues
 # PEACE!
 #
 # This software should be run on any *nix system with python installed,
@@ -100,8 +100,8 @@ def eth_aton (mac):
     temp = string.split (mac, ':')
     mac = string.join (temp, '')
 
-    for i in range (0,len (mac),2):
-        addr = "" . join ([addr, struct.pack ('B', int (mac[i:i+2], 16))],)
+    for i in range (0, len (mac), 2):
+        addr = "" . join ([addr, struct.pack ('B', int (mac[i:i+2], 16))], )
 
     return addr
 
@@ -136,7 +136,7 @@ def hexdump_add_printable_chars (res, spaces = 0):
 
     while j < k:
         if len (str (res[j] + res[j + 1])) == 2:
-            ord_num = int (res[j]+res[j+1],16)
+            ord_num = int (res[j]+res[j+1], 16)
 
             if ord_num > HEX_SMALLEST_CHAR and ord_num < HEX_LARGEST_CHAR:
                 res += chr (ord_num)
@@ -246,7 +246,7 @@ def parseNetworkStr (string):
                 name = ""
                 details = l
 
-            # parse details: mac,channel,speed (802.1 'G',...),security,signal
+            # parse details: mac, channel, speed (802.1 'G', ...), security, signal
             detailsSplit = details.split (',')
             macAddress = detailsSplit[0]
             macAddress = "" . join (macAddress[i:i+2] + ("" if i > len (macAddress) / 2 + 2 else ":") 
@@ -352,7 +352,7 @@ def inputWepKeys (strong): # means we use 26 hexadecimal characters
             try:
                 tmpkey = raw_input ("[i] Please insert key%d (10 hex characters): " % count)
                 if len (tmpkey) == 10 and all (c in string.hexdigits for c in tmpkey):
-                    key = key + (tmpkey.upper (),)
+                    key = key + (tmpkey.upper (), )
                     count += 1
             except KeyboardInterrupt:
                 print "\n"
@@ -557,7 +557,7 @@ def main ():
 
     s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x03'))
 
-    finalMsg = finalMsg.replace ('\x0b','\n')   # next column
+    finalMsg = finalMsg.replace ('\x0b', '\n')   # next column
     splitMsg = finalMsg.split ("7021 SURVEY:")
     configCurr = splitMsg[0][26:]
 
@@ -730,7 +730,7 @@ def main ():
             length = len (psk)
 
             while length < 8 or length > 64:
-                psk = getpass.getpass ("[i] Please insert the passphrase (min 8 chars,will NOT be " + \
+                psk = getpass.getpass ("[i] Please insert the passphrase (min 8 chars, will NOT be " + \
                         "displayed): ")
                 length = len (psk)
 
