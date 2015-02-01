@@ -222,7 +222,7 @@ def buildRequest (src, dst, c = '', p = ''):
     return str (packet)
 
 def read (s, enableExit = True):
-    ready = select.select ([s], [], [], 2)
+    ready = select.select ([s], [], [], 3)
 
     if ready[0]:
         return s.recvfrom (4096)
@@ -480,6 +480,9 @@ def main ():
 
     # START
     # our raw socket
+
+    print "[i] Checking if device is present and getting current config..."
+
     s = socket (AF_PACKET, SOCK_RAW, htons (ETH_ALL))
     s.bind ((interface, ETH_ALL))
 
@@ -522,7 +525,7 @@ def main ():
 
     # fetch the info:
     s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
-    (msg,address) = read (s)
+    (msg, address) = read (s)
 
     if verbose:
         print "[i] The response:"
@@ -532,23 +535,28 @@ def main ():
         print "[i] Box data:"
         print msg[26:-1]
 
-    if "VAP11G" not in  msg:
-        print "[-] Box data does NOT contain the right BOX_NAME identifier. EXIT"
-        exit (1)
+    if "VAP11G" not in msg:
+        print "[!] Warning: box data does NOT contain the right BOX_NAME identifier."
+        print "Note: Sometimes this could occur when the device is in a different state " + \
+          "(e.g starting). Will proceed anyway...\n"
 
-    finalMsg = ""
+        time.sleep (5)
 
     # get SURVEY (next packet)
     msg = read (s, False)
+
+    finalMsg = ""
 
     while not msg is None:
         if verbose:
             print "[i] The response:"
             print hexdump (str (msg[0]))
+
         finalMsg += msg[0]
         msg = read (s, False)
 
     s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x03'))
+
     finalMsg = finalMsg.replace ('\x0b','\n')   # next column
     splitMsg = finalMsg.split ("7021 SURVEY:")
     configCurr = splitMsg[0][26:]
