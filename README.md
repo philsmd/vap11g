@@ -23,7 +23,8 @@ Hardware:
     cd vap11g  
     sudo ./vap11g.py  
 * USAGE:  
-    sdo ./vap11g.py [OPTIONS]
+    sudo ./vap11g.py [OPTIONS]   
+   
     where the available [OPTIONS] are:  
     -i network interface (e.g. eth0, eth1, p4p1)  
     -d debug mode  
