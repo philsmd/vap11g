@@ -60,6 +60,9 @@ This project is lincensed under the **GNU GENERAL PUBLIC LICENSE version 3**. SE
 
 The script/software does not intend any kind of reverse engineering or other illegal use of the hardware or software of the manufacturer etc.  
 The protocol (I have discovered when writing this README) was already in the public domain for a while, the whole packets-exchange was already known and published on wikis and websites.  
+  
 This software only does SEND the (almost) same packets that anyway are available on the LAN (ethernet) cable AND that you can capture (legally) with any OPEN SOURCE and FREE tool intended for this purpose.  
-USE IT AT YOUR OWN RISK  
+  
+USE IT AT YOUR OWN RISK   
+  
 You can not claim any responsibility for any damage, malfunction, problems to the author. Use this software if you trust the author. Trust the author!
