@@ -59,6 +59,7 @@ from optparse import OptionParser
 debug = False
 verbose = False
 defaultInterface = "eth0"
+mac_address_maching = True
 
 ##################################################################
 
@@ -75,6 +76,8 @@ HEX_DEFAULT_HEX_CHAR = "."
 HEX_BLOCK_SIZE = 3
 HEX_SMALLEST_CHAR = 32
 HEX_LARGEST_CHAR = 127
+
+MAC_ADDRESS_MATCH_START = "\x00\x17\x13"
 
 # WEP passphrase to keys conversion uses the defacto standard generation
 WEP_OPTIONS = ("WEP 64bits using passphrase", "WEP 128bits using passphrase", "WEP 64bits keys",
@@ -117,10 +120,10 @@ def conv_octet (octet):
 
     return res
 
-def eth_rev_aton (hexstr):
+def eth_rev_aton (hexstr, lang = 6):
     res = ""
 
-    for i in range (0, 6):
+    for i in range (0, lang):
         if res:
             res += ':'
         res += conv_octet (ord (hexstr[i]))
@@ -221,16 +224,52 @@ def buildRequest (src, dst, c = '', p = ''):
 
     return str (packet)
 
-def read (s, enableExit = True):
-    ready = select.select ([s], [], [], 3)
+def read (s, source, target, enableExit = True):
+    global debug, mac_address_maching
 
-    if ready[0]:
-        return s.recvfrom (4096)
-    elif enableExit:
-        print "[-] Error: socket timed out. EXIT"
-        exit (1)
-    else:
-        return None
+    target = eth_aton (target)
+    source = eth_aton (source)
+
+    broadcast = eth_aton (ETH_BROADCAST)
+
+    while 1:
+        ready = select.select ([s], [], [], 3)
+
+        if ready[0]:
+            answer = s.recvfrom (4096)
+
+            if len (answer) != 2:
+                print "[-] Error: the answer does not seem to be formatted correctly"
+                exit (1)
+
+            msg = answer[0]
+            address = answer[1]
+
+            if len (address) < 1:
+                print "[-] Error: the destination address could not be extracted from the response"
+                exit (1)
+
+            dst = address[-1]
+
+            if dst == source:
+                continue
+
+            if target != broadcast and dst != target:
+                continue
+
+            if mac_address_maching:
+                if dst[0:3] != MAC_ADDRESS_MATCH_START:
+                    if debug:
+                        print "[i] Warning: skipping device with MAC address %s not maching expected mac %s" % \
+                            (eth_rev_aton (dst), eth_rev_aton (MAC_ADDRESS_MATCH_START, 3))
+                    continue
+
+            return answer
+        elif enableExit:
+            print "[-] Error: socket timed out. EXIT"
+            exit (1)
+        else:
+            return None
 
 def parseNetworkStr (string):
     res = {}
@@ -409,7 +448,7 @@ def passphrase2WepKeys (strong, passphrase = ""): # strong means 128bit
     return res
 
 def main ():
-    global debug, defaultInterface, verbose
+    global defaultInterface, mac_address_maching, verbose, debug
 
     parser = OptionParser ()
     parser.add_option ("-i", "--interface", dest = "interface", help = "destination LAN (ethernet) " + \
@@ -433,6 +472,8 @@ def main ():
             metavar = "key")
     parser.add_option ("-t", "--strong", action = "store_true", default = False, dest = "strong",
             help = "128 bit strong encryption", metavar = "strong")
+    parser.add_option ("-m", "--mac", action = "store_false", default = True, dest = "mac_filter",
+            help = "disable mac address filtering", metavar = "mac_filter")
 
     (options, args) = parser.parse_args ()
 
@@ -478,6 +519,9 @@ def main ():
         print "[-] Error: you can only use one security protocol (e.g. WEP, WPA2) at a time" 
         exit (1)
 
+    if not options.mac_filter:
+       mac_address_maching = False
+
     # START
     # our raw socket
 
@@ -491,7 +535,8 @@ def main ():
     # first request: check if there are some devices connected
     s.send (buildRequest (src, ETH_BROADCAST))
 
-    (msg, address) = read (s)
+    dst = ETH_BROADCAST
+    (msg, address) = read (s, src, dst)
 
     if verbose:
         print "[i] The response:"
@@ -504,20 +549,20 @@ def main ():
 
     # force rescan of ssids (networks)
     s.send (buildRequest (src, dst, COMMAND_DEVICE_STATUS))
-    read (s)
+    read (s, src, dst)
 
     s.send (buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_SCAN) + DATA_END))
-    read (s)
+    read (s, src, dst)
 
     s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
-    read (s)
+    read (s, src, dst)
 
     time.sleep (4) # we need this, otherwise we always get an empty network list
 
     # get device info start:
     s.send (buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_CONFIG) + DATA_END))
 
-    (msg, address) = read (s)
+    (msg, address) = read (s, src, dst)
 
     if verbose:
         print "[i] The response:"
@@ -525,7 +570,7 @@ def main ():
 
     # fetch the info:
     s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
-    (msg, address) = read (s)
+    (msg, address) = read (s, src, dst)
 
     if verbose:
         print "[i] The response:"
@@ -543,7 +588,7 @@ def main ():
         time.sleep (5)
 
     # get SURVEY (next packet)
-    msg = read (s, False)
+    msg = read (s, src, dst, False)
 
     finalMsg = ""
 
@@ -553,7 +598,7 @@ def main ():
             print hexdump (str (msg[0]))
 
         finalMsg += msg[0]
-        msg = read (s, False)
+        msg = read (s, src, dst, False)
 
     s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x03'))
 
@@ -710,7 +755,7 @@ def main ():
                 if num == 3:
                     authen =- 1
 
-                    while authen < 0 or channel > 11:
+                    while authen < 0 or authen > 4:
                         try:
                             authen = int (raw_input ("[i] Please choose the key index to be used 1-4:"))
                         except KeyboardInterrupt:
@@ -763,7 +808,7 @@ def main ():
 
     # get OKAY status
     s.send (buildRequest (src, dst, COMMAND_DEVICE_STATUS))
-    success = read (s);
+    success = read (s, src, dst);
 
     if verbose:
         print "[i] The response:"

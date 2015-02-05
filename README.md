@@ -37,6 +37,7 @@ Hardware:
     -a WPA2  
     -k network key, passphrase, password for your security protocol (e.g. WPA2-PSK passphrase)  
     -t use 128bit WEP, strong mode  
+    -m disable mac address filtering (only used for finding/filtering the devices attached)
       
 # Hacking
 
