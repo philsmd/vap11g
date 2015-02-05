@@ -574,6 +574,8 @@ def main ():
             or options.channel or options.ssid):
         print "[i] Networks:"
 
+        networkStr = ""
+
         if len (splitMsg) > 1 and splitMsg[1]:
             try:
                 bandIndex = splitMsg[1].index ("7022 BAND:")
@@ -586,8 +588,8 @@ def main ():
             else:
                 networkStr = splitMsg[1].strip ()
 
-            netList = parseNetworkStr (networkStr)
-            printNetworks (netList)
+        netList = parseNetworkStr (networkStr)
+        printNetworks (netList)
 
         while num < 1 or num > len (netList) + 1:
             try:
