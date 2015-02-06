@@ -65,7 +65,7 @@ debug = False
 verbose = False
 defaultInterface = "eth0"    # for mac it should be "en0"
 defaultInterfaceMAC = "en0"
-mac_address_maching = True
+mac_address_matching = True
 
 ##################################################################
 
@@ -334,7 +334,7 @@ def send (s, af_packet_missing, msg):
         os.write (s.fileno (), msg)
 
 def read (s, af_packet_missing, source, target, buf_size, enableExit = True):
-    global debug, mac_address_maching
+    global debug, mac_address_matching
 
     target = eth_aton (target)
     source = eth_aton (source)
@@ -403,10 +403,10 @@ def read (s, af_packet_missing, source, target, buf_size, enableExit = True):
         if target != broadcast and dst != target:
             continue
 
-        if mac_address_maching:
+        if mac_address_matching:
             if dst[0:3] != MAC_ADDRESS_MATCH_START:
                 if debug:
-                    print "[i] Warning: skipping device with MAC address %s not maching expected mac %s" % \
+                    print "[i] Warning: skipping device with MAC address %s not matching expected mac %s" % \
                         (eth_rev_aton (dst), eth_rev_aton (MAC_ADDRESS_MATCH_START, 3))
                 continue
 
@@ -734,7 +734,7 @@ def initAndBindBPFSocket (s, interface):
     return buf_size
 
 def main ():
-    global defaultInterface, mac_address_maching, verbose, debug
+    global defaultInterface, mac_address_matching, verbose, debug
 
     parser = OptionParser ()
     parser.add_option ("-i", "--interface", dest = "interface", help = "destination LAN (ethernet) " + \
@@ -810,7 +810,7 @@ def main ():
         exit (1)
 
     if not options.mac_filter:
-        mac_address_maching = False
+        mac_address_matching = False
 
     #
     # START the *raw* socket (that is why we need root priviledges)
