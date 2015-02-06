@@ -41,7 +41,7 @@
 # PEACE!
 #
 # This software should be run on any *nix system with python installed,
-# if you want to render it cross-plattform, submit patches for other OSes
+# if you want to render it cross-platform, submit patches for other OSes
 
 import select
 import string

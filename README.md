@@ -46,7 +46,7 @@ Hardware:
 * CLEANUP the code, use more coding standards, newer libraries, everything is welcome (submit patches!)
 * GUI (if you really want/need it,why not?)
 * bug fixes are welcome
-* guaranty cross-plattformness
+* guaranty cross-platformness
 * web interface (maybe also w/ minimalistic webserver included)
 * create interface for some STB
 * and,and,and
