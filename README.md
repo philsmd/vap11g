@@ -4,6 +4,7 @@ The goal of this project is to allow you to use and configure your vap11g device
 
 # Features  
 * should have all functionalities that the originale software of the device has
+* also works on Mac OS X operating systems
 * CONFIGURE your vap11g
 * OPEN SOURCE (GPL v2), nice feature!
 
@@ -26,7 +27,7 @@ Hardware:
     sudo ./vap11g.py [OPTIONS]   
    
     where the available [OPTIONS] are:  
-    -i network interface (e.g. eth0, eth1, p4p1)  
+    -i network interface (e.g. eth0, eth1, p4p1, en0)  
     -d debug mode  
     -v verbose mode (more verbose than debug, with packet inspection)  
     -c channel number to be set (NOT the channel on which the device should scan)  
@@ -37,7 +38,7 @@ Hardware:
     -a WPA2  
     -k network key, passphrase, password for your security protocol (e.g. WPA2-PSK passphrase)  
     -t use 128bit WEP, strong mode  
-    -m disable mac address filtering (only used for finding/filtering the devices attached)
+    -m disable mac address filtering (only used for finding/filtering the local connected ethernet device)  
       
 # Hacking
 

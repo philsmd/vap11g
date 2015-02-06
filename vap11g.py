@@ -50,23 +50,36 @@ import struct
 import getpass
 import hashlib
 import time
-from socket import socket, SOCK_RAW, AF_PACKET, htons
+import os
+from os.path import exists
 from optparse import OptionParser
+
+from socket import socket, SOCK_RAW, htons
+
+from ctypes import *
 
 ##################################################################
 
 # SETTINGS
 debug = False
 verbose = False
-defaultInterface = "eth0"
+defaultInterface = "eth0"    # for mac it should be "en0"
+defaultInterfaceMAC = "en0"
 mac_address_maching = True
 
 ##################################################################
 
 # CONSTANTS / GLOBALS
+
+DEFAULT_TIMEOUT  = 3
+DEFAULT_BUF_SIZE = 4096
+
 ETH_ALL = 3
 ETH_BROADCAST = "ff:ff:ff:ff:ff:ff"
 ETH_TYPE = "\x88\x88"
+
+MAC_ADDRESS_MATCH_START = "\x00\x17\x13"
+
 SECURITY_OPTIONS = ("Disable", "WEP", "WPA-PSK", "WPA2-PSK")
 HEX_MAX_LINE_SYMBOLS = 16
 HEX_DELIMITER = ":"
@@ -76,8 +89,6 @@ HEX_DEFAULT_HEX_CHAR = "."
 HEX_BLOCK_SIZE = 3
 HEX_SMALLEST_CHAR = 32
 HEX_LARGEST_CHAR = 127
-
-MAC_ADDRESS_MATCH_START = "\x00\x17\x13"
 
 # WEP passphrase to keys conversion uses the defacto standard generation
 WEP_OPTIONS = ("WEP 64bits using passphrase", "WEP 128bits using passphrase", "WEP 64bits keys",
@@ -95,6 +106,22 @@ DATA_END = ":\x0d\x0a"
 DATA_REQUEST_CONFIG = 9100
 DATA_REQUEST_SCAN = 9107
 DATA_REQUEST_RESET = 9002
+
+# BPF SPECIFIC CONSTANTS
+BPF_LD  = 0x00
+BPF_H   = 0x08
+BPF_ABS = 0x20
+BPF_JMP = 0x05
+BPF_JEQ = 0x10
+BPF_K   = 0x00
+BPF_RET = 0x06
+ETHERTYPE_ETHERCAT = 0x8888
+
+OSX_BPF_DEVICES="sysctl debug.bpf_maxdevices"
+OSX_NETWORKSETUP_LIST="networksetup -listallhardwareports"
+OSX_NETWORKSETUP_GET_MAC="networksetup -getmacaddress"
+OSX_INTERFACE_DEV_QUERY_STR="Device:"
+OSX_INTERFACE_ADDRESS_QUERY_STR="Ethernet Address:"
 
 ##################################################################
 
@@ -173,7 +200,7 @@ def hexdump (string):
                 len_leading_zeros -= 1
 
             res += str (number_display) + HEX_DELIMITER
-            number_display += HEX_MAX_LINE_SYMBOLS 
+            number_display += HEX_MAX_LINE_SYMBOLS
 
         res += " %02x" % ord (string[i])
         i += 1
@@ -189,11 +216,86 @@ def hexdump (string):
 
     return res
 
-def getHwAddr (s, ifname):
+def OSXIsValidInterface (ifname):
+    list = ""
+
+    try:
+        list = os.popen (OSX_NETWORKSETUP_LIST).read ()
+    except:
+        print "[-] ERROR: an error was encountered while querying all hardware ports"
+
+        exit (1)
+
+    if not list:
+        print "[-] ERROR: hardware port list is empty, can't proceed"
+
+        exit (1)
+
+    found = False
+
+    lines = list.split ("\n")
+
+    for line in lines:
+        if line.startswith (OSX_INTERFACE_DEV_QUERY_STR + " " + ifname):
+            found = True
+            break
+
+    if not found:
+        print "[-] ERROR: interface name was not found in hardware ports list"
+
+        exit (1)
+
+    # always be paranoia
+
+    if ifname.find (';') != -1 or \
+       ifname.find ('|') != -1 or \
+       ifname.find (',') != -1 or \
+       ifname.find ('$') != -1 or \
+       ifname.find (':') != -1:
+        print "[-] ERROR: invalid interface name detected. EXIT"
+
+        exit (1)
+
+def getHwAddr (s, af_packet_missing, ifname):
     global debug
 
-    info = fcntl.ioctl (s.fileno (), 0x8927, struct.pack ("256s", ifname[:15]))
-    mymac = '' . join (["%02x:" % ord (char) for char in info[18:24]])[:-1]
+    if af_packet_missing:
+        # security check (always be paranoia !!! better safe than sorry!)
+        OSXIsValidInterface (ifname)
+
+        try:
+            info = os.popen (OSX_NETWORKSETUP_GET_MAC + " " + ifname).read ()
+        except:
+            print "[-] ERROR: could not get the hardware MAC address of interface '%s'" % ifname
+
+            exit (1)
+
+        if not info:
+            print "[-] ERROR: could not find the specified interface in the networksetup list"
+
+            exit (1)
+
+        if info.find (OSX_INTERFACE_DEV_QUERY_STR + " " + ifname) == -1:
+            print "[-] ERROR: output of the networksetup list does not contain the interface '%s'" %ifname
+
+            exit (1)
+
+        address_pos = info.find (OSX_INTERFACE_ADDRESS_QUERY_STR + " ")
+
+        if address_pos == -1:
+            print "[-] ERROR: output of the networksetup list does not contain the valid 'Ethernet Address'"
+
+            exit (1)
+
+        query_str_len = len (OSX_INTERFACE_ADDRESS_QUERY_STR)
+        substr_start  = address_pos + query_str_len + 1
+        substr_stop   = substr_start + 17
+
+        mymac = info[substr_start:substr_stop]
+
+    else:
+        info = fcntl.ioctl (s.fileno (), 0x8927, struct.pack ("256s", ifname[:15]))
+        mymac = '' . join (["%02x:" % ord (char) for char in info[18:24]])[:-1]
 
     if debug:
         print "[i] Your local ethernet MAC address is %s for interface %s " % (mymac, ifname)
@@ -224,7 +326,14 @@ def buildRequest (src, dst, c = '', p = ''):
 
     return str (packet)
 
-def read (s, source, target, enableExit = True):
+def send (s, af_packet_missing, msg):
+
+    if not af_packet_missing:
+        s.send (msg)
+    else:
+        os.write (s.fileno (), msg)
+
+def read (s, af_packet_missing, source, target, buf_size, enableExit = True):
     global debug, mac_address_maching
 
     target = eth_aton (target)
@@ -233,43 +342,77 @@ def read (s, source, target, enableExit = True):
     broadcast = eth_aton (ETH_BROADCAST)
 
     while 1:
-        ready = select.select ([s], [], [], 3)
+        msg = ""
+        dst = ""
 
-        if ready[0]:
-            answer = s.recvfrom (4096)
+        if not af_packet_missing:
+            ready = select.select ([s], [], [], DEFAULT_TIMEOUT)
 
-            if len (answer) != 2:
-                print "[-] Error: the answer does not seem to be formatted correctly"
+            if ready[0]:
+                buf = s.recvfrom (buf_size)
+
+                if len (buf) != 2:
+                    print "[-] Error: the answer does not seem to be formatted correctly"
+
+                    exit (1)
+
+                msg = buf[0]
+                address = buf[1]
+
+                if len (address) < 1:
+                    print "[-] Error: the destination address could not be extracted from the response"
+
+                    exit (1)
+
+                dst = address[-1]
+
+            # if timeout is not okay
+            elif enableExit:
+                print "[-] Error: socket timed out. EXIT"
+
                 exit (1)
+            else:
+                return None
 
-            msg = answer[0]
-            address = answer[1]
-
-            if len (address) < 1:
-                print "[-] Error: the destination address could not be extracted from the response"
-                exit (1)
-
-            dst = address[-1]
-
-            if dst == source:
-                continue
-
-            if target != broadcast and dst != target:
-                continue
-
-            if mac_address_maching:
-                if dst[0:3] != MAC_ADDRESS_MATCH_START:
-                    if debug:
-                        print "[i] Warning: skipping device with MAC address %s not maching expected mac %s" % \
-                            (eth_rev_aton (dst), eth_rev_aton (MAC_ADDRESS_MATCH_START, 3))
-                    continue
-
-            return answer
-        elif enableExit:
-            print "[-] Error: socket timed out. EXIT"
-            exit (1)
+        # otherwise: use BPF device
         else:
-            return None
+            buf = ""
+
+            try:
+                buf = os.read (s.fileno (), buf_size)
+            except:
+                print "[-] ERROR encountered while reading from BPF device"
+
+                exit (1)
+
+            if not buf:
+                if not enableExit:
+                    return None
+
+            msg = buf[18:]
+            #src = buf[18:24]
+            dst = buf[24:30]
+            # eth_type = buf[30:32]
+
+        if not len (dst):
+            continue
+
+        if dst == source:
+            continue
+
+        if target != broadcast and dst != target:
+            continue
+
+        if mac_address_maching:
+            if dst[0:3] != MAC_ADDRESS_MATCH_START:
+                if debug:
+                    print "[i] Warning: skipping device with MAC address %s not maching expected mac %s" % \
+                        (eth_rev_aton (dst), eth_rev_aton (MAC_ADDRESS_MATCH_START, 3))
+                continue
+
+        ret = (msg, eth_rev_aton (dst))
+
+        return ret
 
 def parseNetworkStr (string):
     res = {}
@@ -288,7 +431,7 @@ def parseNetworkStr (string):
             # parse details: mac, channel, speed (802.1 'G', ...), security, signal
             detailsSplit = details.split (',')
             macAddress = detailsSplit[0]
-            macAddress = "" . join (macAddress[i:i+2] + ("" if i > len (macAddress) / 2 + 2 else ":") 
+            macAddress = "" . join (macAddress[i:i+2] + ("" if i > len (macAddress) / 2 + 2 else ":")
                 for i in xrange (0, len (macAddress), 2))
             res[macAddress] = {"name":name, "channel":detailsSplit[1], "speed":detailsSplit[2],
                 "security":detailsSplit[3], "signal":detailsSplit[4], "psk":""}
@@ -354,7 +497,7 @@ def printNetworks (netList):
 def getSecmodeSelection ():
     print "[i] Available security modes:"
 
-    count = 1 
+    count = 1
 
     for name in SECURITY_OPTIONS:
         print str (count) + ") " + name
@@ -426,7 +569,7 @@ def passphrase2WepKeys (strong, passphrase = ""): # strong means 128bit
         m.update (buf)
         key = m.hexdigest ()[:26]
         key = key.upper ()
-        res = (key, key, key, key) 
+        res = (key, key, key, key)
     else: # 64 bit
         i = 0
         val = 0
@@ -443,16 +586,159 @@ def passphrase2WepKeys (strong, passphrase = ""): # strong means 128bit
 
         if key and len (key) == 40:
             key = key.upper ()
-            res = (key[:10], key[10:20], key[20:30], key[30:40]) 
+            res = (key[:10], key[10:20], key[20:30], key[30:40])
 
     return res
+
+def getSocketFromBPFDevice ():
+    socket = None
+
+    # get maximum number of BPF devices
+    bpf_num_str = os.popen (OSX_BPF_DEVICES).read ()
+
+    if not "debug.bpf_maxdevices:" in bpf_num_str:
+        print "[-] ERROR: failed to get the amount of bpf devices"
+
+        exit (1)
+    else:
+        bpf_num_str = bpf_num_str[22:]
+
+    bpf_num = int (bpf_num_str)
+
+    # try to open (binary read and write) the /dev/bpfx device
+
+    for i in range (bpf_num):
+        bpf_device = "/dev/bpf%d" % i
+
+        if not exists (bpf_device):
+            print "[-] ERROR: no suitable /dev/bpfx device found, last one tried: %s" % bpf_device
+            exit (1)
+        try:
+            socket = open (bpf_device, "rb+")
+            break
+
+        except IOError as ioe:
+            if ioe.errno == 13:
+                print "[-] ERROR: Permission denied"
+                exit (1)
+
+            if ioe.errno == 16: # resource busy -> try next one
+                pass
+
+    if socket == None:
+        print "[-] ERROR: could not open any /dev/bpfx devices. EXIT"
+
+        exit (1)
+
+    return socket
+
+# ctype classes for BPF program
+
+class bpf_insn (Structure):
+    _fields_ = [("code", c_ushort), ("jt", c_ubyte), ("jf", c_ubyte), ("k", c_int)]
+
+class bpf_program (Structure):
+    _fields_ = [(".bf_len", c_uint), (".bf_insns", POINTER (bpf_insn))]
+
+def getBPFProgram ():
+    num_insn = 4
+
+    # insn 1
+    stmt1 = bpf_insn ()
+    stmt1.code = BPF_LD + BPF_H + BPF_ABS
+    stmt1.jt   = 0
+    stmt1.jf   = 0
+    stmt1.k    = 12
+
+    # insn 2
+    jump1 = bpf_insn ()
+    jump1.code = BPF_JMP + BPF_JEQ + BPF_K
+    jump1.jt   = 0
+    jump1.jf   = 1
+    jump1.k    = ETHERTYPE_ETHERCAT
+    jump1.k    = 0
+
+    # insn 3
+    stmt2 = bpf_insn ()
+    stmt2.code = BPF_RET + BPF_K
+    stmt2.jt   = 0
+    stmt2.jf   = 0
+    stmt2.k    = -1
+
+    # insn 4
+    stmt3 = bpf_insn ()
+    stmt3.code = BPF_RET + BPF_K
+    stmt3.jt   = 0
+    stmt3.jf   = 0
+    stmt3.k    = 0
+
+    program = bpf_program ()
+
+    program.bf_len   = num_insn
+    program.bf_insns = (bpf_insn * num_insn) (stmt1, jump1, stmt2, stmt3)
+
+    return program
+
+def initAndBindBPFSocket (s, interface):
+    # BIOCSETIF - sets the hardware interface associated with the bpf file
+    # _IOW (B, 108, struct ifreq)
+
+    ioc = 0x80000000 | (32 << 16) | (ord ('B') <<  8) | 108
+    buf = struct.pack ('32s', interface)
+
+    try:
+        fcntl.ioctl (s.fileno (), ioc, buf)
+    except:
+        print "[-] ERROR: could not bind BPF device to interface. Make sure that the interface" + \
+            "specified (with -i parameter) is correct"
+
+        exit (1)
+
+    # BIOCIMMEDIATE - enables immediate mode
+    # _IOW ('B', 112, u_int)
+
+    ioc = 0x80000000 | (4 << 16) | (ord ('B') << 8) | 112
+    buf = struct.pack ('I', 1)
+    fcntl.ioctl (s.fileno (), ioc, buf)
+
+    # BIOCSHDRCMPLT - disable to set link level source address automatically
+    # _IOR ('B', 117, u_int)
+
+    ioc = 0x80000000 | (4 << 16) | (ord ('B') << 8) | 117
+    buf = struct.pack ('I', 1)
+    fcntl.ioctl (s.fileno (), ioc, buf)
+
+    # BIOCGBLEN - get required buffer length for reads
+    # _IOR (B, 102, u_int)
+
+    ioc = 0x40000000 | (4 << 16) | (ord ('B') << 8) | 102
+    buf = struct.pack ('i', 0)
+    (buf_size,) = struct.unpack ("I", fcntl.ioctl (s.fileno (), ioc, buf))
+
+    # BIOCSORTIMEOUT - set the read timeout
+    # _IOW ('B', 109, struct timeval50)
+
+    ioc = 0x80000000 | (8 << 16) | (ord ('B') << 8) | 109
+    buf = struct.pack ('II', DEFAULT_TIMEOUT, 0)
+    fcntl.ioctl (s.fileno (), ioc, buf)
+
+    # BIOCSETF - set a filter/program
+    # _IOW ('B', 103, struct bpf_program)
+
+    # TODO: verify if we need to fix this, i.e. have even more resticted/better filtering etc
+    program = getBPFProgram ()
+
+    ioc = 0x80000000 | (8 << 16) | (ord ('B') << 8) | 103
+    fcntl.ioctl (s.fileno (), ioc, program)
+
+    return buf_size
 
 def main ():
     global defaultInterface, mac_address_maching, verbose, debug
 
     parser = OptionParser ()
     parser.add_option ("-i", "--interface", dest = "interface", help = "destination LAN (ethernet) " + \
-            "interface (e.g. eth0, eth1, p4p1)", metavar = "interface")
+            "interface (e.g. eth0, eth1, p4p1, en0)", metavar = "interface")
     parser.add_option ("-d", "--debug", action = "store_true", default = debug, dest = "debug",
             help = "debug mode switch", metavar = "debug")
     parser.add_option ("-v", "--verbose", action = "store_true", default = debug, dest = "verbose",
@@ -497,16 +783,19 @@ def main ():
 
         if tmpChannel < 0 or tmpChannel > 12:
             print "[-] Error: channel number must be 0 (auto) or between 1 and 11"
+
             exit (1)
 
     if not options.ssid is None:
         if len (options.ssid) < 1 or len (options.ssid) > 32:
             print "[-] Error: ESSID network name must be less than 32 alphanumeric characters"
+
             exit (1)
 
     # options.noauth options.wep options.wpa options.wpa2 options.key
     if options.noauth and not options.key is None:
         print "[-] Error: if noauth mode is used you can't specify a network key"
+
         exit (1)
 
     exlusiveOption = 0
@@ -516,61 +805,92 @@ def main ():
             exlusiveOption += 1
 
     if exlusiveOption > 1:
-        print "[-] Error: you can only use one security protocol (e.g. WEP, WPA2) at a time" 
+        print "[-] Error: you can only use one security protocol (e.g. WEP, WPA2) at a time"
+
         exit (1)
 
     if not options.mac_filter:
-       mac_address_maching = False
+        mac_address_maching = False
 
-    # START
-    # our raw socket
+    #
+    # START the *raw* socket (that is why we need root priviledges)
+    #
 
     print "[i] Checking if device is present and getting current config..."
 
-    s = socket (AF_PACKET, SOCK_RAW, htons (ETH_ALL))
-    s.bind ((interface, ETH_ALL))
+    af_packet_missing = 0
 
-    src = getHwAddr (s, interface)
+    try:
+        from socket import AF_PACKET
+    except:
+        af_packet_missing = 1
 
-    # first request: check if there are some devices connected
-    s.send (buildRequest (src, ETH_BROADCAST))
+        if debug:
+            print "[i] NOTE: socket.AF_PACKET missing, trying to query bpf devices (for OSX etc)"
+
+        if options.interface is None:
+
+            interface = defaultInterfaceMAC
+
+            if debug:
+                print "[i] NOTE: default interface changed to %s" % defaultInterface
+
+    # open socket (*nix AF_PACKET raw socket or BPF device)
+
+    buf_size = DEFAULT_BUF_SIZE
+    s = None
+
+    if af_packet_missing:
+        s = getSocketFromBPFDevice ()
+        buf_size = initAndBindBPFSocket (s, interface)
+
+        if buf_size < 1:
+          print "[-] ERROR: the determined buffer size is not valid (too small). EXIT"
+
+          exit (1)
+    else:
+        s = socket (AF_PACKET, SOCK_RAW, htons (ETH_ALL))
+        s.bind ((interface, ETH_ALL))
+
+    src = getHwAddr (s, af_packet_missing, interface)
+
+    # first request: check if the device is connected (to local ethernet / lan port)
+    send (s, af_packet_missing, buildRequest (src, ETH_BROADCAST))
 
     dst = ETH_BROADCAST
-    (msg, address) = read (s, src, dst)
+    (msg, dst) = read (s, af_packet_missing, src, dst, buf_size)
 
     if verbose:
         print "[i] The response:"
         print hexdump (str (msg))
 
-    dst = eth_rev_aton (address[-1])
-
     if debug:
-        print "[i] Got response from device on interface '%s' with MAC %s" % (address[0], dst)
+        print "[i] Got response from device on interface '%s' with MAC %s" % (interface, dst)
 
     # force rescan of ssids (networks)
-    s.send (buildRequest (src, dst, COMMAND_DEVICE_STATUS))
-    read (s, src, dst)
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_DEVICE_STATUS))
+    read (s, af_packet_missing, src, dst, buf_size)
 
-    s.send (buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_SCAN) + DATA_END))
-    read (s, src, dst)
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_SCAN) + DATA_END))
+    read (s, af_packet_missing, src, dst, buf_size)
 
-    s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
-    read (s, src, dst)
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
+    read (s, af_packet_missing, src, dst, buf_size)
 
     time.sleep (4) # we need this, otherwise we always get an empty network list
 
     # get device info start:
-    s.send (buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_CONFIG) + DATA_END))
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_CONFIG) + DATA_END))
 
-    (msg, address) = read (s, src, dst)
+    (msg, address) = read (s, af_packet_missing, src, dst, buf_size)
 
     if verbose:
         print "[i] The response:"
         print hexdump (str (msg))
 
     # fetch the info:
-    s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
-    (msg, address) = read (s, src, dst)
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
+    (msg, address) = read (s, af_packet_missing, src, dst, buf_size)
 
     if verbose:
         print "[i] The response:"
@@ -588,7 +908,7 @@ def main ():
         time.sleep (5)
 
     # get SURVEY (next packet)
-    msg = read (s, src, dst, False)
+    msg = read (s, af_packet_missing, src, dst, buf_size, False)
 
     finalMsg = ""
 
@@ -598,9 +918,9 @@ def main ():
             print hexdump (str (msg[0]))
 
         finalMsg += msg[0]
-        msg = read (s, src, dst, False)
+        msg = read (s, af_packet_missing, src, dst, buf_size, False)
 
-    s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x03'))
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x03'))
 
     finalMsg = finalMsg.replace ('\x0b', '\n')   # next column
     splitMsg = finalMsg.split ("7021 SURVEY:")
@@ -641,6 +961,7 @@ def main ():
                 num = int (raw_input ("[i] Please choose one of the options above: "))
             except KeyboardInterrupt:
                 print "\n"
+
                 exit (1)
             except:
                 num = 0
@@ -665,6 +986,7 @@ def main ():
             (macAddress, netDetails) = netList.items ()[num-1]
         except:
             print "[-] Could not read network details for configuration number %d" % num
+
             exit (1)
         try:
             essid = netDetails["name"]
@@ -699,6 +1021,7 @@ def main ():
                     " to 11: "))
                 except KeyboardInterrupt:
                     print "\n"
+
                     exit (1)
                 except:
                     channel = -1
@@ -743,6 +1066,7 @@ def main ():
                         num = int (raw_input ("[i] Please choose one of the options above: "))
                     except KeyboardInterrupt:
                         print "\n"
+
                         exit (1)
                     except:
                         num = 0
@@ -760,6 +1084,7 @@ def main ():
                             authen = int (raw_input ("[i] Please choose the key index to be used 1-4:"))
                         except KeyboardInterrupt:
                             print "\n"
+
                             exit (1)
                         except:
                             authen =- 1
@@ -803,34 +1128,42 @@ def main ():
     # 7020: pskal (TKIT,AES),   7021: survey (NO SET),
     # 7022: band (0==auto)
 
-    s.send (buildRequest (src, dst, COMMAND_CONFIG + '\x01', payload))
-    s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_CONFIG + '\x01', payload))
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
 
     # get OKAY status
-    s.send (buildRequest (src, dst, COMMAND_DEVICE_STATUS))
-    success = read (s, src, dst);
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_DEVICE_STATUS))
+    success = read (s, af_packet_missing, src, dst, buf_size)
 
     if verbose:
         print "[i] The response:"
         print hexdump (str (success[0]))
 
+    dhclient_cmd_msg = ""
+
+    if af_packet_missing:
+        dhclient_cmd_msg = "sudo ipconfig set %s DHCP" % interface
+    else:
+        dhclient_cmd_msg = "sudo dhclient %s" % interface
+
     if success[0][22] == '\x02':
         print "[+] Device did accept the configuration and will reboot now"
         print "[i] The device's led will become blue when the ssid was found, this does NOT\n" + \
                 "    imply that the connection was indeed successful. You should test that with" + \
-                ":\n    sudo dhclient3 %s\n    ping www.google.com # example\n" % interface + \
-                "    while disabling all other interfaces (e.g. wlan0)"
+                ":\n    %s\n    ping www.google.com # example\n" % dhclient_cmd_msg + \
+                "    while disabling all other interfaces (e.g. wlan0, en1)"
         print "[i] Please re-execute the script to see the (new) wireless configuration"
     else:
         print "[-] It seems that the device did not accept your configuration:\n" + \
                 "status code was: %02x, will reboot anyway" % ord (success[0][22])
 
-    s.send (buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_RESET) + DATA_END))
-    s.send (buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_CONFIG + '\x01', str (DATA_REQUEST_RESET) + DATA_END))
+    send (s, af_packet_missing, buildRequest (src, dst, COMMAND_REQUEST_RESPONSE + '\x02'))
 
 if __name__ == "__main__":
     try:
         main ()
     except KeyboardInterrupt:
         print "\n"
+
         exit (1)
